@@ -1,0 +1,84 @@
+name: OpenWrt-CI
+ 
+on:
+  push:
+    branches: 
+    - master
+    
+    paths:
+      - '.config'
+      
+jobs:
+  
+  build_openwrt:
+  
+    name: Build OpenWrt firmware
+    
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+      - uses: actions/checkout@v2
+        with:
+          ref: master
+
+      - name: Space cleanup
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          docker rmi `docker images -q`
+          sudo rm -rf /usr/share/dotnet /etc/mysql /etc/php /etc/apt/sources.list.d
+          sudo -E apt-get update
+          sudo -E apt-get -y sudo apt-get install subversion g++ zlib1g-dev build-essential git python rsync man-db
+          sudo -E apt-get -y sudo apt-get install libncurses5-dev gawk gettext unzip file libssl-dev wget zip time
+          sudo -E apt-get -y autoremove --purge
+          sudo -E apt-get clean
+          
+      - name: Download - openwrt source download
+        run: |
+           git clone https://github.com/openwrt/openwrt.git  
+     
+      - name: Update feeds 
+        run: |
+           cd openwrt  
+           git tag
+           git checkout v19.07.7
+           ./scripts/feeds update -a
+           ./scripts/feeds install -a
+           
+      - name: Config - official openwrt k2p build config
+        run: |
+          cp .config openwrt/.config
+          cd openwrt
+          make defconfig
+        
+      - name: Download - openwrt build dependencies
+        run: |
+          cd openwrt
+          make download -j8
+        
+      - name: Build - make openwrt source
+        run: |
+          cd openwrt
+          make -j$(nproc)  
+         
+      - name: Assemble artifact
+        run: |
+          rm -rf ./artifact/
+          mkdir -p ./artifact/
+          find ./bin/targets/ -name "*combined*img*" | xargs -i mv -f {} ./artifact/
+          find ./bin/targets/ -name "*sysupgrade*bin*" | xargs -i mv -f {} ./artifact/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@master
+        with:
+          name: OpenWrt firmware
+          path: ./artifact/
+                   
+      - name: Deliver buildinfo
+        uses: actions/upload-artifact@v2
+        with:
+          name: OpenWrt_buildinfo
+          path: ./artifact/buildinfo/      
+        
+          
